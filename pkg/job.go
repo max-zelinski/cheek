@@ -101,17 +101,7 @@ func (jr *JobRun) logToDb() {
 		return
 	}
 
-	// Perform an UPSERT (insert or update)
-	_, err := jr.jobRef.cfg.DB.Exec(`
-		INSERT INTO log (job,triggered_at ,triggered_by, duration, status, message) 
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(job, triggered_at, triggered_by) DO UPDATE SET 
-			duration = excluded.duration, 
-			status = excluded.status, 
-			message = excluded.message;
-		`,
-		jr.Name, jr.TriggeredAt, jr.TriggeredBy, jr.Duration, jr.Status, jr.Log)
-
+	err := InsertOrUpdateJobRun(jr.jobRef.cfg.DB, jr)
 	if err != nil {
 		if jr.jobRef.globalSchedule != nil {
 			jr.jobRef.globalSchedule.log.Warn().Str("job", jr.Name).Err(err).Msg("Couldn't save job log to db.")
@@ -315,17 +305,7 @@ func (j *JobSpec) loadLogFromDb(id int) (JobRun, error) {
 		return jr, errors.New("no db connection")
 	}
 
-	// if id -1 then load last run
-	if id == -1 {
-		err := j.cfg.DB.Get(&jr, "SELECT id, triggered_at, triggered_by, duration, status, message FROM log WHERE job = ? ORDER BY triggered_at DESC LIMIT 1", j.Name)
-		if err != nil {
-			j.log.Warn().Str("job", j.Name).Err(err).Msg("Couldn't load job run from db.")
-			return jr, err
-		}
-		return jr, nil
-	}
-
-	err := j.cfg.DB.Get(&jr, "SELECT id, triggered_at, triggered_by, duration, status, message FROM log WHERE id = ?", id)
+	jr, err := LoadJobRun(j.cfg.DB, j.Name, id)
 	if err != nil {
 		j.log.Warn().Str("job", j.Name).Err(err).Msg("Couldn't load job run from db.")
 		return jr, err
@@ -334,25 +314,12 @@ func (j *JobSpec) loadLogFromDb(id int) (JobRun, error) {
 }
 
 func (j *JobSpec) loadRunsFromDb(nruns int, includeLogs bool) {
-	var query string
 	if j.cfg.DB == nil {
 		j.log.Warn().Str("job", j.Name).Msg("No db connection, not loading job runs from db.")
 		return
 	}
-	if includeLogs {
-		query = "SELECT id, triggered_at, triggered_by, duration, status, message FROM log WHERE job = ? ORDER BY triggered_at DESC LIMIT ?"
-	} else {
-		query = "SELECT id, triggered_at, triggered_by, duration, status FROM log WHERE job = ? ORDER BY triggered_at DESC LIMIT ?"
-	}
-	rows, err := j.cfg.DB.Query(query, j.Name, nruns)
-	if err != nil {
-		j.log.Warn().Str("job", j.Name).Err(err).Msg("Couldn't load job runs from db.")
-		return
-	}
-	defer func() { _ = rows.Close() }()
 
-	var jrs []JobRun
-	err = j.cfg.DB.Select(&jrs, query, j.Name, nruns)
+	jrs, err := LoadJobRuns(j.cfg.DB, j.Name, nruns, includeLogs)
 	if err != nil {
 		j.log.Warn().Str("job", j.Name).Err(err).Msg("Couldn't load job runs from db.")
 		return

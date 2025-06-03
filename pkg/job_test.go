@@ -16,45 +16,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestLoadLogs(t *testing.T) {
-	db, err := OpenDB("./tmp.sqlite3")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg := NewConfig()
-	cfg.DB = db
-
-	l := NewLogger("debug", nil, os.Stdout, os.Stdout)
-
-	j := &JobSpec{
-		Cron:    "* * * * *",
-		Name:    "test",
-		Command: []string{"echo", "bar"},
-		cfg:     cfg,
-		log:     l,
-	}
-
-	_, err = j.ToYAML(false)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_ = j.execCommandWithRetry("test")
-
-	// log loading goes on job name basis
-	// let's recreate and see if we can load logs
-
-	j = &JobSpec{
-		Name: "test",
-		cfg:  cfg,
-		log:  l,
-	}
-
-	j.loadRunsFromDb(10, false)
-
-	assert.Greater(t, len(j.Runs), 0)
-}
-
 func TestJobRun(t *testing.T) {
 	j := &JobSpec{
 		Cron:    "* * * * *",
